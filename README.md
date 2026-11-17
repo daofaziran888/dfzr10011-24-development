@@ -73,5 +73,33 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 全局采集指标处理（看板刷新管线）
+
+看板刷新所需的指标计算与按面板范围聚合统一收在
+`backend/app/services/metrics.py`，前后端入口如下：
+
+| 能力 | 入口 |
+| --- | --- |
+| 指标口径版本清单 | `GET /api/dashboard/calibers` |
+| 刷新看板面板（可携带旧口径与冲突策略） | `POST /api/dashboard/{id}/refresh` |
+| 读取采集趋势（概览、分组、逐项来源与统计时间） | `GET /api/dashboard/{id}/trend` |
+| 面板指标快照与刷新流水 | `GET /api/dashboard/{id}/snapshots`、`/refresh-logs` |
+| 可解释采集核对清单 | `GET /api/storage/checklist` |
+| 分层登记的看板指标快照 | `GET /api/storage/metric-snapshots` |
+| 存储模块同步刷新清单与全局指标 | `POST /api/storage/sync-metrics` |
+
+规则要点：
+
+1. 一次刷新只引用一个指标口径版本，全部业务模块按同一口径取数，不允许新旧范围混用。
+2. 请求携带旧口径而当前已有新发布口径时：`conflict_policy=requested` 沿用旧口径，
+   看板显示旧口径标签、快照登记到温存层并标记「待复核」；`conflict_policy=current`
+   切换到当前发布口径，看板显示新口径与切换时间、快照登记到热存层。
+3. 重复刷新幂等返回既有趋势，不生成第二份采集趋势；刷新失败保留上一份成功结果；
+   同一面板并发刷新经面板级锁串行化，只写入一个指标版本。
+4. 仅「已启用」面板允许刷新（如 DASH-0002 启用、DASH-0003 暂停时只刷启用面板）。
+5. 存储模块的同步刷新与看板刷新复用同一条管线，核对清单按 `metric_id` 幂等更新，
+   快照保存口径版本、统计窗口与冲突处理记录。
+
+
 领域：数据工程
 子方向：数据采集、爬虫与RPA
